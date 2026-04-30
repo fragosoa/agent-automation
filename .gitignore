@@ -1,0 +1,70 @@
+# === SECRETOS — nunca en git ===
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+wheels/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Entornos virtuales ===
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# === Testing & coverage ===
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# === Linters & formatters ===
+.ruff_cache/
+.mypy_cache/
+
+# === Base de datos local (dev) ===
+*.db
+*.sqlite
+*.sqlite3
+
+# === Logs ===
+*.log
+logs/
+
+# === Docker ===
+*.override.yml
+
+# === Repos clonados por los agentes ===
+workspace/repos/
+
+# === IDEs ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
