@@ -107,7 +107,7 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             f"✅ *Task #{task.id} encolada*\n\n"
             f"📦 Proyecto: `{project_name}`\n"
-            f"📝 Tarea: {description}\n"
+            f"📝 Tarea: {_escape_md(description)}\n"
             f"🤖 Agente: `{task.agent}`\n"
             f"⚡ Prioridad: `{priority.value}`",
             parse_mode="Markdown",
@@ -146,7 +146,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         }
         for t in tasks:
             emoji = status_emoji.get(t.status, "❓")
-            lines.append(f"{emoji} `#{t.id}` {t.description[:40]} — _{t.status.value}_")
+            lines.append(f"{emoji} `#{t.id}` {_escape_md(t.description[:40])} — _{t.status.value}_")
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
     finally:
@@ -233,7 +233,7 @@ async def cmd_fix(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🔧 *Fix #{fix_task.id} encolado*\n\n"
             f"📦 Proyecto: `{project.name}`\n"
             f"🔗 Branch: `{original.branch_name}`\n"
-            f"📝 Corrección: {correction}\n"
+            f"📝 Corrección: {_escape_md(correction)}\n"
             f"🤖 Agente: `{fix_task.agent}`",
             parse_mode="Markdown",
         )
@@ -244,6 +244,17 @@ async def cmd_fix(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await cmd_start(update, context)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _escape_md(text: str) -> str:
+    """Escapa caracteres especiales de Markdown para Telegram."""
+    for char in ["_", "*", "`", "["]:
+        text = text.replace(char, f"\\{char}")
+    return text
 
 
 # ---------------------------------------------------------------------------
