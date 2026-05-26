@@ -30,6 +30,7 @@ class TaskResponse(BaseModel):
     pr_url: str | None
     pr_number: int | None
     error_message: str | None
+    agent_log: str | None
 
     model_config = {"from_attributes": True}
 
