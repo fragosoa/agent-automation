@@ -420,8 +420,9 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     # Google (Gemini)
     if settings.google_ai_api_key:
         lines.append("🔵 <b>Google (Gemini)</b>")
-        lines.append("  • <code>gemini/gemini-1.5-pro</code>")
-        lines.append("  • <code>gemini/gemini-1.5-flash</code>")
+        lines.append("  • <code>gemini/gemini-3.5-flash</code> — más reciente")
+        lines.append("  • <code>gemini/gemini-2.5-pro</code>")
+        lines.append("  • <code>gemini/gemini-2.0-flash</code>")
         lines.append("")
 
     lines.append(f"⚙️ Agente por defecto: <code>{h(settings.default_agent)}</code>")
