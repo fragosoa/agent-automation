@@ -38,7 +38,23 @@ async def route_task(task: Task, project: Project) -> AgentResult:
     )
 
     # Asegurarse de que el repo está clonado/actualizado antes de empezar
-    from tools.git_tools import clone_or_update_repo
+    import shutil
+    from pathlib import Path
+    from tools.git_tools import clone_or_update_repo, _inject_token
+
+    # Si el repo existe pero el remote no tiene token, borrarlo para re-clonar limpio
+    repo_dir = Path(repo_path)
+    if repo_dir.exists() and (repo_dir / ".git").exists():
+        try:
+            import git as gitpkg
+            existing_repo = gitpkg.Repo(repo_path)
+            current_url = list(existing_repo.remotes.origin.urls)[0]
+            if "@" not in current_url:
+                logger.info("Remote sin token detectado, re-clonando repo", path=repo_path)
+                shutil.rmtree(repo_path)
+        except Exception:
+            pass
+
     clone_result = clone_or_update_repo(project.repo_url, repo_path)
     if "error" in clone_result:
         logger.error("Error clonando repo", error=clone_result["error"])

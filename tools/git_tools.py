@@ -18,6 +18,14 @@ settings = get_settings()
 # Git local (GitPython)
 # ---------------------------------------------------------------------------
 
+def _inject_token(repo_url: str) -> str:
+    """Inyecta el GITHUB_TOKEN en la URL HTTPS para autenticación sin prompt."""
+    token = settings.github_token
+    if token and "github.com" in repo_url and "@" not in repo_url:
+        repo_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
+    return repo_url
+
+
 def clone_or_update_repo(repo_url: str, local_path: str) -> dict:
     """
     Clona el repo si no existe localmente, o hace pull si ya existe.
@@ -26,14 +34,17 @@ def clone_or_update_repo(repo_url: str, local_path: str) -> dict:
         {"success": True, "path": str} o {"error": str}
     """
     path = Path(local_path)
+    auth_url = _inject_token(repo_url)
     try:
         if path.exists() and (path / ".git").exists():
             repo = git.Repo(local_path)
+            # Asegurar que el remote tiene el token actualizado
+            repo.remotes.origin.set_url(auth_url)
             repo.remotes.origin.pull()
             return {"success": True, "path": local_path, "action": "pulled"}
         else:
             path.mkdir(parents=True, exist_ok=True)
-            git.Repo.clone_from(repo_url, local_path)
+            git.Repo.clone_from(auth_url, local_path)
             return {"success": True, "path": local_path, "action": "cloned"}
     except Exception as e:
         return {"error": str(e)}
@@ -92,6 +103,11 @@ def push_branch(repo_path: str, branch_name: str) -> dict:
     try:
         repo = git.Repo(repo_path)
         origin = repo.remotes.origin
+        # Asegurar que el remote tiene el token antes del push
+        current_url = list(origin.urls)[0]
+        auth_url = _inject_token(current_url)
+        if auth_url != current_url:
+            origin.set_url(auth_url)
         origin.push(refspec=f"{branch_name}:{branch_name}", set_upstream=True)
         return {"success": True, "branch": branch_name}
     except Exception as e:
