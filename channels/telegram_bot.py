@@ -44,6 +44,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Comandos disponibles:\n"
         "<code>/task &lt;proyecto&gt; &lt;descripción&gt;</code> — Encola una tarea nueva\n"
         "<code>/fix &lt;task_id&gt; &lt;corrección&gt;</code> — Corrige el PR de una tarea existente\n"
+        "<code>/cancel &lt;task_id&gt;</code> — Cancela una tarea encolada\n"
+        "<code>/retry &lt;task_id&gt;</code> — Reintenta una tarea fallida o cancelada\n"
         "<code>/status</code> — Ver las últimas tareas\n"
         "<code>/projects</code> — Ver proyectos activos\n"
         "<code>/help</code> — Ayuda\n",
@@ -260,6 +262,139 @@ async def cmd_fix(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         db.close()
 
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /cancel <task_id>
+    Cancela una tarea que esté en estado QUEUED.
+    """
+    if not _is_authorized(update):
+        await update.message.reply_text("⛔ No autorizado.")
+        return
+
+    args = context.args or []
+    if not args or not args[0].isdigit():
+        await update.message.reply_text(
+            "Uso: <code>/cancel &lt;task_id&gt;</code>\n"
+            "Ejemplo: <code>/cancel 5</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    task_id = int(args[0])
+    db = SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            await update.message.reply_text(
+                f"❌ Tarea <code>#{task_id}</code> no encontrada.",
+                parse_mode="HTML",
+            )
+            return
+
+        if task.status == TaskStatus.IN_PROGRESS:
+            await update.message.reply_text(
+                f"⚠️ La tarea <code>#{task_id}</code> está en progreso y no puede cancelarse.\n"
+                "Espera a que termine o falle.",
+                parse_mode="HTML",
+            )
+            return
+
+        if task.status in (TaskStatus.DONE, TaskStatus.CANCELLED):
+            await update.message.reply_text(
+                f"ℹ️ La tarea <code>#{task_id}</code> ya está en estado <i>{task.status.value}</i>.",
+                parse_mode="HTML",
+            )
+            return
+
+        task.status = TaskStatus.CANCELLED
+        db.commit()
+
+        # Cerrar el PR en GitHub si existe
+        pr_closed = False
+        if task.pr_number:
+            project = db.query(Project).filter(Project.id == task.project_id).first()
+            try:
+                from tools.git_tools import _get_github_repo
+                gh_repo = _get_github_repo(project.repo_url)
+                pr = gh_repo.get_pull(task.pr_number)
+                pr.edit(state="closed")
+                pr_closed = True
+            except Exception as e:
+                logger.warning("No se pudo cerrar el PR", pr=task.pr_number, error=str(e))
+
+        msg = f"🚫 <b>Task #{task_id} cancelada</b>\n\n📝 {h(task.description[:60])}"
+        if pr_closed:
+            msg += f"\n🔒 PR #{task.pr_number} cerrado en GitHub"
+        elif task.pr_number:
+            msg += f"\n⚠️ No se pudo cerrar el PR #{task.pr_number} automáticamente"
+
+        await update.message.reply_text(msg, parse_mode="HTML")
+    finally:
+        db.close()
+
+
+async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /retry <task_id>
+    Reintenta una tarea fallida o cancelada.
+    """
+    if not _is_authorized(update):
+        await update.message.reply_text("⛔ No autorizado.")
+        return
+
+    args = context.args or []
+    if not args or not args[0].isdigit():
+        await update.message.reply_text(
+            "Uso: <code>/retry &lt;task_id&gt;</code>\n"
+            "Ejemplo: <code>/retry 5</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    task_id = int(args[0])
+    db = SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            await update.message.reply_text(
+                f"❌ Tarea <code>#{task_id}</code> no encontrada.",
+                parse_mode="HTML",
+            )
+            return
+
+        if task.status not in (TaskStatus.FAILED, TaskStatus.CANCELLED):
+            await update.message.reply_text(
+                f"⚠️ Solo puedes reintentar tareas <i>fallidas</i> o <i>canceladas</i>.\n"
+                f"La tarea <code>#{task_id}</code> está en estado <i>{task.status.value}</i>.",
+                parse_mode="HTML",
+            )
+            return
+
+        # Resetear estado y limpiar campos del intento anterior
+        task.status = TaskStatus.QUEUED
+        task.error_message = None
+        task.agent_log = None
+        task.branch_name = None
+        task.pr_url = None
+        task.pr_number = None
+        task.started_at = None
+        task.completed_at = None
+        db.commit()
+
+        enqueue_task(task.id)
+
+        project = db.query(Project).filter(Project.id == task.project_id).first()
+        await update.message.reply_text(
+            f"🔁 <b>Task #{task_id} reintentando</b>\n\n"
+            f"📦 Proyecto: <code>{h(project.name)}</code>\n"
+            f"📝 {h(task.description[:60])}\n"
+            f"🤖 Agente: <code>{h(task.agent)}</code>",
+            parse_mode="HTML",
+        )
+    finally:
+        db.close()
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await cmd_start(update, context)
 
@@ -285,6 +420,8 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("task", cmd_task))
     app.add_handler(CommandHandler("fix", cmd_fix))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
+    app.add_handler(CommandHandler("retry", cmd_retry))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("projects", cmd_projects))
     app.add_handler(CommandHandler("help", cmd_help))
