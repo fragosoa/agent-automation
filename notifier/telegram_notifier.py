@@ -4,6 +4,7 @@ Se usa para avisar cuando un PR está listo o cuando una tarea falla.
 """
 
 import structlog
+from html import escape
 from telegram import Bot
 from telegram.constants import ParseMode
 
@@ -13,6 +14,11 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 
+def h(text: str) -> str:
+    """Escapa texto para uso seguro en mensajes HTML de Telegram."""
+    return escape(str(text))
+
+
 async def send_message(text: str) -> bool:
     """Envía un mensaje de texto al chat de Adolfo."""
     try:
@@ -20,7 +26,7 @@ async def send_message(text: str) -> bool:
         await bot.send_message(
             chat_id=settings.telegram_chat_id,
             text=text,
-            parse_mode=ParseMode.MARKDOWN_V2,
+            parse_mode=ParseMode.HTML,
         )
         return True
     except Exception as e:
@@ -38,11 +44,11 @@ async def notify_pr_ready(
 ) -> bool:
     """Notifica que un PR está listo para revisar."""
     text = (
-        f"✅ *Task \\#{task_id} completada*\n\n"
-        f"📦 Proyecto: `{_escape(project_name)}`\n"
-        f"📝 Tarea: {_escape(description)}\n"
-        f"🌿 Branch: `{_escape(branch_name)}`\n\n"
-        f"👀 [Ver PR \\#{pr_number}]({_escape(pr_url)})"
+        f"✅ <b>Task #{task_id} completada</b>\n\n"
+        f"📦 Proyecto: <code>{h(project_name)}</code>\n"
+        f"📝 Tarea: {h(description)}\n"
+        f"🌿 Branch: <code>{h(branch_name)}</code>\n\n"
+        f"👀 <a href=\"{h(pr_url)}\">Ver PR #{pr_number}</a>"
     )
     return await send_message(text)
 
@@ -50,10 +56,10 @@ async def notify_pr_ready(
 async def notify_task_started(task_id: int, project_name: str, description: str) -> bool:
     """Notifica que un agente comenzó a trabajar en una tarea."""
     text = (
-        f"🤖 *Task \\#{task_id} iniciada*\n\n"
-        f"📦 Proyecto: `{_escape(project_name)}`\n"
-        f"📝 Tarea: {_escape(description)}\n\n"
-        "_El agente está trabajando\\.\\.\\._"
+        f"🤖 <b>Task #{task_id} iniciada</b>\n\n"
+        f"📦 Proyecto: <code>{h(project_name)}</code>\n"
+        f"📝 Tarea: {h(description)}\n\n"
+        "<i>El agente está trabajando...</i>"
     )
     return await send_message(text)
 
@@ -63,15 +69,9 @@ async def notify_task_failed(
 ) -> bool:
     """Notifica que una tarea falló."""
     text = (
-        f"❌ *Task \\#{task_id} falló*\n\n"
-        f"📦 Proyecto: `{_escape(project_name)}`\n"
-        f"📝 Tarea: {_escape(description)}\n\n"
-        f"⚠️ Error:\n`{_escape(error[:300])}`"
+        f"❌ <b>Task #{task_id} falló</b>\n\n"
+        f"📦 Proyecto: <code>{h(project_name)}</code>\n"
+        f"📝 Tarea: {h(description)}\n\n"
+        f"⚠️ Error:\n<code>{h(error[:300])}</code>"
     )
     return await send_message(text)
-
-
-def _escape(text: str) -> str:
-    """Escapa caracteres especiales para Telegram MarkdownV2."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    return "".join(f"\\{c}" if c in special else c for c in str(text))
