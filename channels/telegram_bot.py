@@ -31,8 +31,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 *Agent Automation Bot*\n\n"
         "Comandos disponibles:\n"
-        "`/task <proyecto> <descripción>` — Encola una tarea\n"
-        "`/status` — Ver cola de tareas\n"
+        "`/task <proyecto> <descripción>` — Encola una tarea nueva\n"
+        "`/fix <task_id> <corrección>` — Corrige el PR de una tarea existente\n"
+        "`/status` — Ver las últimas tareas\n"
         "`/projects` — Ver proyectos activos\n"
         "`/help` — Ayuda\n",
         parse_mode="Markdown",
@@ -173,6 +174,74 @@ async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         db.close()
 
 
+async def cmd_fix(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /fix <task_id> <corrección>
+    Crea una tarea de corrección que trabaja en el branch del PR existente.
+    """
+    if not _is_authorized(update):
+        await update.message.reply_text("⛔ No autorizado.")
+        return
+
+    text = " ".join(context.args) if context.args else ""
+    parts = text.split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[0].isdigit():
+        await update.message.reply_text(
+            "Uso: `/fix <task_id> <corrección>`\n"
+            "Ejemplo: `/fix 5 Agrega sección de instalación al README`",
+            parse_mode="Markdown",
+        )
+        return
+
+    task_id = int(parts[0])
+    correction = parts[1]
+
+    db = SessionLocal()
+    try:
+        original = db.query(Task).filter(Task.id == task_id).first()
+        if not original:
+            await update.message.reply_text(f"❌ Tarea `#{task_id}` no encontrada.")
+            return
+
+        if not original.branch_name:
+            await update.message.reply_text(
+                f"❌ La tarea `#{task_id}` no tiene un branch asociado.\n"
+                "Solo puedes usar `/fix` en tareas que ya abrieron un PR.",
+                parse_mode="Markdown",
+            )
+            return
+
+        project = db.query(Project).filter(Project.id == original.project_id).first()
+
+        # Crear nueva task de corrección con el branch del PR original
+        fix_task = Task(
+            project_id=original.project_id,
+            description=f"[FIX de #{task_id}] {correction}",
+            status=TaskStatus.QUEUED,
+            priority=TaskPriority.HIGH,
+            agent=original.agent,
+            branch_name=original.branch_name,  # Reusar el branch existente
+        )
+        db.add(fix_task)
+        db.commit()
+        db.refresh(fix_task)
+
+        enqueue_task(fix_task.id)
+
+        await update.message.reply_text(
+            f"🔧 *Fix #{fix_task.id} encolado*\n\n"
+            f"📦 Proyecto: `{project.name}`\n"
+            f"🔗 Branch: `{original.branch_name}`\n"
+            f"📝 Corrección: {correction}\n"
+            f"🤖 Agente: `{fix_task.agent}`",
+            parse_mode="Markdown",
+        )
+
+    finally:
+        db.close()
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await cmd_start(update, context)
 
@@ -197,6 +266,7 @@ def run_bot() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("task", cmd_task))
+    app.add_handler(CommandHandler("fix", cmd_fix))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("projects", cmd_projects))
     app.add_handler(CommandHandler("help", cmd_help))

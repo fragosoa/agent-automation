@@ -74,14 +74,24 @@ class ClaudeAgent(BaseAgent):
         log = structlog.get_logger().bind(task_id=task.task_id, agent=self.name)
         log.info("Iniciando ejecución de tarea", description=task.description)
 
-        branch_name = self._build_branch_name(task.task_id, task.description)
+        if task.existing_branch:
+            branch_name = task.existing_branch
+            branch_instruction = (
+                f"Branch existente a usar: `{branch_name}` — "
+                f"NO crees un branch nuevo. Haz checkout a este branch con `run_command`: "
+                f"`git checkout {branch_name}` y trabaja ahí directamente."
+            )
+        else:
+            branch_name = self._build_branch_name(task.task_id, task.description)
+            branch_instruction = f"Branch a crear: `{branch_name}` — usa `create_branch` para crearlo."
+
         messages = [
             {
                 "role": "user",
                 "content": (
                     f"Tarea #{task.task_id}: {task.description}\n\n"
                     f"Repositorio: {task.repo_path}\n"
-                    f"Branch a crear: {branch_name}\n"
+                    f"{branch_instruction}\n"
                     f"Branch base: {task.base_branch}\n"
                     f"Comando de tests: {task.test_command or 'No configurado'}\n\n"
                     "Implementa la tarea siguiendo las instrucciones del sistema."

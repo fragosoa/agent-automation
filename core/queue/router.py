@@ -35,6 +35,7 @@ async def route_task(task: Task, project: Project) -> AgentResult:
         base_branch=project.base_branch,
         test_command=project.test_command,
         lint_command=project.lint_command,
+        existing_branch=task.branch_name or None,  # Si la task tiene branch, trabajar en él
     )
 
     # Asegurarse de que el repo está clonado/actualizado antes de empezar
