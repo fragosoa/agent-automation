@@ -17,6 +17,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 
 WORKDIR /app
 
+ENV PYTHONPATH=/app
+
 # Instalar dependencias Python
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \

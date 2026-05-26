@@ -2,8 +2,8 @@
 name: example-project
 repo_url: https://github.com/tu-usuario/example-project
 base_branch: main
-default_agent: claude-opus-4
-fallback_agent: claude-sonnet-4
+default_agent: claude-opus-4-6
+fallback_agent: claude-sonnet-4-6
 test_command: pytest
 lint_command: ruff check .
 format_command: ruff format .
