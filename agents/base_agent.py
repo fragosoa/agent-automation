@@ -18,6 +18,7 @@ class AgentTask:
     test_command: str | None = None
     lint_command: str | None = None
     existing_branch: str | None = None  # Si se define, trabajar en este branch en lugar de crear uno nuevo
+    project_context: str = ""           # Contenido del context.md del proyecto
 
 
 @dataclass

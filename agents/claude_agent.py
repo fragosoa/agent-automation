@@ -85,6 +85,10 @@ class ClaudeAgent(BaseAgent):
             branch_name = self._build_branch_name(task.task_id, task.description)
             branch_instruction = f"Branch a crear: `{branch_name}` — usa `create_branch` para crearlo."
 
+        context_section = ""
+        if task.project_context:
+            context_section = f"\n## Contexto del proyecto\n\n{task.project_context}\n"
+
         messages = [
             {
                 "role": "user",
@@ -93,7 +97,8 @@ class ClaudeAgent(BaseAgent):
                     f"Repositorio: {task.repo_path}\n"
                     f"{branch_instruction}\n"
                     f"Branch base: {task.base_branch}\n"
-                    f"Comando de tests: {task.test_command or 'No configurado'}\n\n"
+                    f"Comando de tests: {task.test_command or 'No configurado'}\n"
+                    f"{context_section}\n"
                     "Implementa la tarea siguiendo las instrucciones del sistema."
                 ),
             }

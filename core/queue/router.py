@@ -35,7 +35,8 @@ async def route_task(task: Task, project: Project) -> AgentResult:
         base_branch=project.base_branch,
         test_command=project.test_command,
         lint_command=project.lint_command,
-        existing_branch=task.branch_name or None,  # Si la task tiene branch, trabajar en él
+        existing_branch=task.branch_name or None,
+        project_context=_load_project_context(project.name),
     )
 
     # Asegurarse de que el repo está clonado/actualizado antes de empezar
@@ -97,3 +98,18 @@ def _get_repo_path(project: Project) -> str:
     """Devuelve la ruta local donde se clona el repositorio del proyecto."""
     workspace = settings.workspace_dir
     return os.path.join(workspace, project.name)
+
+
+def _load_project_context(project_name: str) -> str:
+    """
+    Lee el context.md del proyecto si existe.
+    Busca en projects/{name}/context.md relativo al directorio de trabajo.
+    """
+    import pathlib
+    context_path = pathlib.Path("projects") / project_name / "context.md"
+    if context_path.exists():
+        try:
+            return context_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning("No se pudo leer context.md", project=project_name, error=str(e))
+    return ""
