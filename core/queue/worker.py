@@ -78,23 +78,18 @@ def run_agent_task(self, task_id: int) -> dict:
 
             # Abrir PR si el agente hizo push
             if result.branch_name:
-                from tools.git_tools import open_pull_request
-                pr_title = f"[Task #{task.id}] {task.description[:80]}"
-                pr_body = (result.summary or result.log or task.description) + f"\n\n---\n*PR generado automáticamente por `{task.agent}` · Task #{task.id}*"
-                pr_result = open_pull_request(
-                    repo_url=project.repo_url,
-                    branch_name=result.branch_name,
-                    title=pr_title,
-                    body=pr_body,
-                    base_branch=project.base_branch,
-                )
-                if pr_result.get("success"):
-                    task.pr_url = pr_result["pr_url"]
-                    task.pr_number = pr_result["pr_number"]
-                    task.status = TaskStatus.PR_OPEN
-                    log.info("PR abierto", pr_url=task.pr_url)
+                from tools.git_tools import open_pull_request, get_pr_status
 
-                    # Notificar a Adolfo
+                # Buscar si ya existe un PR abierto para este branch (caso /fix)
+                existing_pr = _find_existing_pr(project.repo_url, result.branch_name)
+
+                if existing_pr:
+                    # Reusar el PR existente — el push ya actualizó el branch
+                    task.pr_url = existing_pr["url"]
+                    task.pr_number = existing_pr["number"]
+                    task.status = TaskStatus.PR_OPEN
+                    log.info("PR existente reutilizado", pr_url=task.pr_url)
+
                     from notifier.telegram_notifier import notify_pr_ready
                     asyncio.run(notify_pr_ready(
                         task_id=task.id,
@@ -105,8 +100,47 @@ def run_agent_task(self, task_id: int) -> dict:
                         branch_name=result.branch_name,
                     ))
                 else:
-                    task.status = TaskStatus.FAILED
-                    task.error_message = pr_result.get("error", "Error al abrir PR")
+                    # Abrir PR nuevo
+                    pr_title = f"[Task #{task.id}] {task.description[:80]}"
+                    pr_body = (result.summary or result.log or task.description) + f"\n\n---\n*PR generado automáticamente por `{task.agent}` · Task #{task.id}*"
+                    pr_result = open_pull_request(
+                        repo_url=project.repo_url,
+                        branch_name=result.branch_name,
+                        title=pr_title,
+                        body=pr_body,
+                        base_branch=project.base_branch,
+                    )
+                    if pr_result.get("success"):
+                        task.pr_url = pr_result["pr_url"]
+                        task.pr_number = pr_result["pr_number"]
+                        task.status = TaskStatus.PR_OPEN
+                        log.info("PR abierto", pr_url=task.pr_url)
+                    elif "Validation Failed" in pr_result.get("error", ""):
+                        # PR ya existe — buscarlo como fallback
+                        log.warning("PR ya existe, buscando PR existente como fallback")
+                        fallback_pr = _find_existing_pr(project.repo_url, result.branch_name)
+                        if fallback_pr:
+                            task.pr_url = fallback_pr["url"]
+                            task.pr_number = fallback_pr["number"]
+                            task.status = TaskStatus.PR_OPEN
+                            log.info("PR existente encontrado como fallback", pr_url=task.pr_url)
+                        else:
+                            task.status = TaskStatus.FAILED
+                            task.error_message = pr_result.get("error", "Error al abrir PR")
+                    else:
+                        task.status = TaskStatus.FAILED
+                        task.error_message = pr_result.get("error", "Error al abrir PR")
+
+                    if task.status == TaskStatus.PR_OPEN:
+                        from notifier.telegram_notifier import notify_pr_ready
+                        asyncio.run(notify_pr_ready(
+                            task_id=task.id,
+                            project_name=project.name,
+                            description=task.description,
+                            pr_url=task.pr_url,
+                            pr_number=task.pr_number,
+                            branch_name=result.branch_name,
+                        ))
             else:
                 task.status = TaskStatus.DONE
         else:
@@ -142,6 +176,33 @@ def run_agent_task(self, task_id: int) -> dict:
         raise self.retry(exc=e)
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# PR helpers
+# ---------------------------------------------------------------------------
+
+def _find_existing_pr(repo_url: str, branch_name: str) -> dict | None:
+    """
+    Busca si ya existe un PR abierto para el branch dado.
+    Retorna {"number": int, "url": str} o None si no existe.
+    """
+    try:
+        import re
+        from github import Github
+        from core.config import get_settings
+        settings = get_settings()
+        match = re.search(r"github\.com[:/](.+?/.+?)(?:\.git)?$", repo_url)
+        if not match:
+            return None
+        gh = Github(settings.github_token)
+        gh_repo = gh.get_repo(match.group(1))
+        pulls = gh_repo.get_pulls(state="open", head=f"{gh_repo.owner.login}:{branch_name}")
+        for pr in pulls:
+            return {"number": pr.number, "url": pr.html_url}
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
