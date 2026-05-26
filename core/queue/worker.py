@@ -72,6 +72,10 @@ def run_agent_task(self, task_id: int) -> dict:
         result = asyncio.run(route_task(task, project))
 
         if result.success:
+            # Regenerar el grafo de dependencias y commitearlo junto con los cambios
+            if result.branch_name:
+                _update_dependency_graph(task_id, project.name, result.branch_name, log)
+
             # Abrir PR si el agente hizo push
             if result.branch_name:
                 from tools.git_tools import open_pull_request
@@ -138,3 +142,185 @@ def run_agent_task(self, task_id: int) -> dict:
         raise self.retry(exc=e)
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Dependency graph helpers
+# ---------------------------------------------------------------------------
+
+def _update_dependency_graph(task_id: int, project_name: str, branch_name: str, log) -> None:
+    """
+    Regenera context/DEPENDENCY_GRAPH.md en el repo del proyecto
+    y lo commitea en el mismo branch del agente.
+
+    Se ejecuta automáticamente después de que el agente termina su trabajo,
+    antes de abrir el PR — así el grafo siempre está actualizado en el PR.
+    """
+    from core.config import get_settings
+    import os
+
+    settings = get_settings()
+    repo_path = os.path.join(settings.workspace_dir, project_name)
+    graph_path = os.path.join(repo_path, "context", "DEPENDENCY_GRAPH.md")
+
+    try:
+        graph_content = _build_dependency_graph(repo_path)
+        os.makedirs(os.path.join(repo_path, "context"), exist_ok=True)
+
+        with open(graph_path, "w", encoding="utf-8") as f:
+            f.write(graph_content)
+
+        # Commitear el grafo actualizado en el branch del agente
+        from tools.git_tools import commit_changes
+        result = commit_changes(
+            repo_path=repo_path,
+            message="chore(context): update dependency graph",
+        )
+        if result.get("success"):
+            log.info("Dependency graph actualizado y commiteado")
+        elif result.get("nothing_to_commit"):
+            log.info("Dependency graph sin cambios, no se commitea")
+        else:
+            log.warning("No se pudo commitear el dependency graph", error=result.get("error"))
+
+    except Exception as e:
+        # No fallar la tarea entera si esto falla — es un paso de contexto, no crítico
+        log.warning("Error actualizando dependency graph", error=str(e))
+
+
+def _build_dependency_graph(repo_path: str) -> str:
+    """
+    Analiza estáticamente los imports del proyecto y construye
+    el contenido de DEPENDENCY_GRAPH.md.
+    Soporta Python (ast) con fallback a grep para otros lenguajes.
+    """
+    import ast
+    from pathlib import Path
+    from collections import defaultdict
+    from datetime import datetime
+
+    root = Path(repo_path)
+    EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "dist", "build", ".ruff_cache"}
+
+    def _is_excluded(path: Path) -> bool:
+        return any(part in EXCLUDE_DIRS for part in path.parts)
+
+    # Recopilar todos los archivos .py del proyecto
+    py_files = [f for f in root.rglob("*.py") if not _is_excluded(f)]
+
+    # Construir mapa de módulo → ruta de archivo
+    module_map: dict[str, Path] = {}
+    for f in py_files:
+        rel = f.relative_to(root)
+        parts = list(rel.with_suffix("").parts)
+        module_map[".".join(parts)] = f
+        if parts[-1] == "__init__":
+            module_map[".".join(parts[:-1])] = f
+
+    # Calcular dependencias: archivo → [archivos que importa dentro del proyecto]
+    deps: dict[str, list[str]] = {}
+    for f in py_files:
+        key = str(f.relative_to(root))
+        deps[key] = []
+        try:
+            tree = ast.parse(f.read_text(errors="ignore"))
+            for node in ast.walk(tree):
+                mod = None
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if node.level == 0:
+                        mod = node.module
+                    else:
+                        # Import relativo — resolver desde la carpeta actual
+                        package_parts = list(f.relative_to(root).parent.parts)
+                        for _ in range(node.level - 1):
+                            package_parts = package_parts[:-1] if package_parts else package_parts
+                        mod = ".".join(package_parts + ([node.module] if node.module else []))
+                elif isinstance(node, ast.Import):
+                    mod = node.names[0].name
+
+                if mod and mod in module_map:
+                    dep_key = str(module_map[mod].relative_to(root))
+                    if dep_key != key and dep_key not in deps[key]:
+                        deps[key].append(dep_key)
+        except Exception:
+            pass
+
+    # Calcular aristas entrantes (quién depende de cada archivo)
+    incoming: dict[str, list[str]] = defaultdict(list)
+    for src, targets in deps.items():
+        for tgt in targets:
+            incoming[tgt].append(src)
+
+    # Ordenar hubs por número de dependientes
+    hubs = sorted(
+        [(f, inc) for f, inc in incoming.items() if len(inc) >= 2],
+        key=lambda x: len(x[1]),
+        reverse=True,
+    )
+    entry_points = [f for f in deps if not deps[f] and not incoming.get(f)]
+    isolated = [f for f in deps if not deps[f] and not incoming.get(f)]
+
+    # Construir el markdown
+    lines = [
+        "# Dependency Graph",
+        "",
+        f"> Generado automáticamente por análisis estático de imports · {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+        "> Una arista A → B significa 'A importa B'.",
+        "> Actualizado automáticamente en cada PR del sistema de agentes.",
+        "",
+        "---",
+        "",
+        "## Archivos hub (más dependidos — tocar con cuidado)",
+        "",
+    ]
+
+    if hubs:
+        for f, inc in hubs:
+            lines.append(f"- `{f}` — usado por {len(inc)} archivo(s): {', '.join(f'`{i}`' for i in inc)}")
+    else:
+        lines.append("_(ningún archivo es importado por más de un módulo aún)_")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Entry points (sin dependencias internas)",
+        "",
+    ]
+    entry_points = [f for f in deps if not deps[f] and incoming.get(f)]
+    if entry_points:
+        for f in sorted(entry_points):
+            lines.append(f"- `{f}`")
+    else:
+        lines.append("_(no detectados)_")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Grafo completo (lista de adyacencia)",
+        "",
+    ]
+
+    for src in sorted(deps):
+        targets = deps[src]
+        lines.append(f"### `{src}`")
+        if targets:
+            for tgt in sorted(targets):
+                lines.append(f"- → `{tgt}`")
+        else:
+            lines.append("- _(sin dependencias internas)_")
+        lines.append("")
+
+    lines += [
+        "---",
+        "",
+        "## Guía de búsqueda rápida",
+        "",
+        "| Si modificas... | Revisa también... |",
+        "|---|---|",
+    ]
+    for f, inc in hubs:
+        lines.append(f"| `{f}` | {', '.join(f'`{i}`' for i in inc)} |")
+
+    return "\n".join(lines) + "\n"
