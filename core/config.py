@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # GitHub
     github_token: str
+    github_webhook_secret: str = ""
 
     # Database
     database_url: str = "sqlite:///./dev.db"

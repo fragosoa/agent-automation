@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from core.database import init_db
 from core.api.tasks import router as tasks_router
 from core.api.projects import router as projects_router
+from core.api.webhooks import router as webhooks_router
 
 
 @asynccontextmanager
@@ -25,6 +26,7 @@ app = FastAPI(
 
 app.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 app.include_router(projects_router, prefix="/projects", tags=["projects"])
+app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 
 
 @app.get("/health")
