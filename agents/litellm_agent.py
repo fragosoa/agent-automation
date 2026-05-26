@@ -297,27 +297,44 @@ class LiteLLMAgent(BaseAgent):
 
     def _execute_tool(self, tool_name: str, tool_input: dict, task: AgentTask) -> dict:
         repo = task.repo_path
-        match tool_name:
-            case "read_file":
-                return read_file(repo, tool_input["file_path"])
-            case "write_file":
-                return write_file(repo, tool_input["file_path"], tool_input["content"])
-            case "list_directory":
-                return list_directory(repo, tool_input.get("dir_path", "."))
-            case "get_file_tree":
-                return get_file_tree(repo, tool_input.get("max_depth", 3))
-            case "run_command":
-                return run_command(repo, tool_input["command"], tool_input.get("timeout", 120))
-            case "create_branch":
-                return create_branch(repo, tool_input["branch_name"])
-            case "commit_changes":
-                return commit_changes(repo, tool_input["message"])
-            case "push_branch":
-                return push_branch(repo, tool_input["branch_name"])
-            case "search_in_repo":
-                return search_in_repo(repo, tool_input["pattern"], tool_input.get("file_glob", "*"))
-            case _:
-                return {"error": f"Tool desconocido: {tool_name}"}
+        try:
+            match tool_name:
+                case "read_file":
+                    if "file_path" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: file_path"}
+                    return read_file(repo, tool_input["file_path"])
+                case "write_file":
+                    if "file_path" not in tool_input or "content" not in tool_input:
+                        return {"error": "Parámetros requeridos faltantes: file_path, content"}
+                    return write_file(repo, tool_input["file_path"], tool_input["content"])
+                case "list_directory":
+                    return list_directory(repo, tool_input.get("dir_path", "."))
+                case "get_file_tree":
+                    return get_file_tree(repo, tool_input.get("max_depth", 3))
+                case "run_command":
+                    if "command" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: command"}
+                    return run_command(repo, tool_input["command"], tool_input.get("timeout", 120))
+                case "create_branch":
+                    if "branch_name" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: branch_name"}
+                    return create_branch(repo, tool_input["branch_name"])
+                case "commit_changes":
+                    if "message" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: message"}
+                    return commit_changes(repo, tool_input["message"])
+                case "push_branch":
+                    if "branch_name" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: branch_name"}
+                    return push_branch(repo, tool_input["branch_name"])
+                case "search_in_repo":
+                    if "pattern" not in tool_input:
+                        return {"error": "Parámetro requerido faltante: pattern"}
+                    return search_in_repo(repo, tool_input["pattern"], tool_input.get("file_glob", "*"))
+                case _:
+                    return {"error": f"Tool desconocido: {tool_name}"}
+        except Exception as e:
+            return {"error": f"Error ejecutando {tool_name}: {str(e)}"}
 
     def _parse_final_response(self, text: str, fallback_branch: str) -> AgentResult:
         import re
