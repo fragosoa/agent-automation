@@ -26,7 +26,8 @@ class AgentResult:
     branch_name: str | None = None
     pr_url: str | None = None
     pr_number: int | None = None
-    log: str = ""
+    log: str = ""         # Log completo de debug (tool calls, outputs) — solo para DB
+    summary: str = ""     # Resumen limpio para el PR body
     error: str | None = None
 
 

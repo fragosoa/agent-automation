@@ -34,6 +34,7 @@ SYSTEM_PROMPT = """Eres un agente de software autónomo. Tu trabajo es implement
 5. **No rompas tests existentes.** Corre los tests antes de terminar.
 6. **Si la tarea es ambigua**, implementa la opción más conservadora y documéntalo.
 7. **Nunca escribas secretos o API keys** en el código.
+8. **Nunca ejecutes `env`, `printenv` ni comandos que listen variables de entorno.** Contienen credenciales sensibles.
 
 ## Flujo de trabajo esperado
 
@@ -112,7 +113,8 @@ class ClaudeAgent(BaseAgent):
                     )
                     full_log.append(f"[Agente terminó]\n{final_text}")
                     result = self._parse_final_response(final_text, branch_name)
-                    result.log = "\n".join(full_log)
+                    result.log = self._sanitize_log("\n".join(full_log))  # debug log para DB
+                    # summary ya viene limpio de _parse_final_response
                     log.info("Tarea completada", pr_url=result.pr_url)
                     return result
 
@@ -192,13 +194,54 @@ class ClaudeAgent(BaseAgent):
             match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
             if match:
                 data = json.loads(match.group(1))
+                summary = self._build_pr_summary(data)
                 return AgentResult(
                     success=True,
                     branch_name=data.get("branch_name", fallback_branch),
-                    log=data.get("summary", text),
+                    summary=summary,
+                    log=text,
                 )
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Si no hay JSON válido, devolver éxito con el texto como log
-        return AgentResult(success=True, branch_name=fallback_branch, log=text)
+        # Si no hay JSON válido, devolver éxito con el texto como summary
+        return AgentResult(success=True, branch_name=fallback_branch, summary=text, log=text)
+
+    def _build_pr_summary(self, data: dict) -> str:
+        """Construye un resumen limpio para el PR a partir del JSON del agente."""
+        lines = []
+
+        summary = data.get("summary", "")
+        if summary:
+            lines.append(f"## ¿Qué se hizo?\n\n{summary}\n")
+
+        commits = data.get("commits", [])
+        if commits:
+            lines.append("## Commits\n")
+            for c in commits:
+                lines.append(f"- `{c}`")
+            lines.append("")
+
+        tests_passed = data.get("tests_passed")
+        if tests_passed is not None:
+            status = "✅ Tests pasaron" if tests_passed else "❌ Tests fallaron"
+            lines.append(f"## Tests\n\n{status}\n")
+
+        return "\n".join(lines)
+
+    def _sanitize_log(self, log: str) -> str:
+        """Elimina valores de variables de entorno sensibles del log de debug."""
+        import re
+        import os
+        # Redactar cualquier token/key que aparezca en el log
+        sensitive_patterns = [
+            (r"(GITHUB_TOKEN=)[^\s\n]+", r"\1[REDACTED]"),
+            (r"(ANTHROPIC_API_KEY=)[^\s\n]+", r"\1[REDACTED]"),
+            (r"(TELEGRAM_BOT_TOKEN=)[^\s\n]+", r"\1[REDACTED]"),
+            (r"(SECRET_KEY=)[^\s\n]+", r"\1[REDACTED]"),
+            (r"(DATABASE_URL=)[^\s\n]+", r"\1[REDACTED]"),
+            (r"(REDIS_URL=)[^\s\n]+", r"\1[REDACTED]"),
+        ]
+        for pattern, replacement in sensitive_patterns:
+            log = re.sub(pattern, replacement, log)
+        return log

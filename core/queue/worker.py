@@ -80,7 +80,7 @@ def run_agent_task(self, task_id: int) -> dict:
             if result.branch_name:
                 from tools.git_tools import open_pull_request
                 pr_title = f"[Task #{task.id}] {task.description[:80]}"
-                pr_body = result.log
+                pr_body = (result.summary or result.log or task.description) + f"\n\n---\n*PR generado automáticamente por `{task.agent}` · Task #{task.id}*"
                 pr_result = open_pull_request(
                     repo_url=project.repo_url,
                     branch_name=result.branch_name,

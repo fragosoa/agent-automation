@@ -54,9 +54,9 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=ProjectResponse, status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
-    existing = db.query(Project).filter(Project.name == body.name).first()
+    existing = db.query(Project).filter(Project.name == body.name, Project.is_active == True).first()
     if existing:
-        raise HTTPException(status_code=409, detail=f"Ya existe un proyecto con nombre '{body.name}'")
+        raise HTTPException(status_code=409, detail=f"Ya existe un proyecto activo con nombre '{body.name}'")
     project = Project(**body.model_dump())
     db.add(project)
     db.commit()
