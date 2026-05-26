@@ -19,7 +19,8 @@ WORKDIR /app
 
 # Instalar dependencias Python
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir .
 
 # Copiar código fuente
 COPY . .
