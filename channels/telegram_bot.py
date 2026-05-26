@@ -48,6 +48,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<code>/retry &lt;task_id&gt;</code> — Reintenta una tarea fallida o cancelada\n"
         "<code>/status</code> — Ver las últimas tareas\n"
         "<code>/projects</code> — Ver proyectos activos\n"
+        "<code>/agents</code> — Ver agentes disponibles\n"
         "<code>/help</code> — Ayuda\n",
         parse_mode="HTML",
     )
@@ -395,6 +396,40 @@ async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         db.close()
 
 
+async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lista los agentes disponibles según las API keys configuradas."""
+    if not _is_authorized(update):
+        return
+
+    lines = ["<b>Agentes disponibles:</b>\n"]
+
+    # Claude (Anthropic)
+    if settings.anthropic_api_key:
+        lines.append("🟣 <b>Anthropic (Claude)</b>")
+        lines.append("  • <code>claude-opus-4-6</code> — máxima capacidad")
+        lines.append("  • <code>claude-sonnet-4-6</code> — rápido y eficiente")
+        lines.append("")
+
+    # OpenAI (GPT)
+    if settings.openai_api_key:
+        lines.append("🟢 <b>OpenAI (GPT)</b>")
+        lines.append("  • <code>gpt-4o</code> — modelo principal")
+        lines.append("  • <code>gpt-4o-mini</code> — rápido y económico")
+        lines.append("")
+
+    # Google (Gemini)
+    if settings.google_ai_api_key:
+        lines.append("🔵 <b>Google (Gemini)</b>")
+        lines.append("  • <code>gemini/gemini-1.5-pro</code>")
+        lines.append("  • <code>gemini/gemini-1.5-flash</code>")
+        lines.append("")
+
+    lines.append(f"⚙️ Agente por defecto: <code>{h(settings.default_agent)}</code>")
+    lines.append("\nUso: <code>/task proyecto descripción --agent gpt-4o</code>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await cmd_start(update, context)
 
@@ -424,6 +459,7 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("retry", cmd_retry))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("projects", cmd_projects))
+    app.add_handler(CommandHandler("agents", cmd_agents))
     app.add_handler(CommandHandler("help", cmd_help))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)

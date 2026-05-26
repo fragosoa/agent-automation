@@ -86,12 +86,10 @@ def _build_agent(agent_name: str):
     if "claude" in agent_name.lower():
         from agents.claude_agent import ClaudeAgent
         return ClaudeAgent(model=agent_name)
-    elif "gpt" in agent_name.lower():
-        # Placeholder para futura integración con OpenAI
-        raise NotImplementedError(f"Agente GPT aún no implementado: {agent_name}")
     else:
-        # Fallback: intentar con LiteLLM en el futuro
-        raise ValueError(f"Agente no reconocido: {agent_name}")
+        # GPT-4o, Gemini y cualquier modelo soportado por LiteLLM
+        from agents.litellm_agent import LiteLLMAgent
+        return LiteLLMAgent(model=agent_name)
 
 
 def _get_repo_path(project: Project) -> str:
